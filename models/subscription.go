@@ -2,8 +2,37 @@ package models
 
 import (
 	"database/sql"
+	"math"
 	"time"
 )
+
+const dateFmt = "2006-01-02"
+const dateTimeFmt = "2006-01-02 15:04:05"
+
+const (
+	StatusActive   = "active"
+	StatusExpired  = "expired"
+	StatusExpiring = "expiring"
+)
+
+// ComputeStatus returns subscription status based on days until expiry.
+func ComputeStatus(expireDate time.Time) string {
+	days := int(time.Until(expireDate).Hours() / 24)
+	if days < 0 {
+		return StatusExpired
+	}
+	if days <= 7 {
+		return StatusExpiring
+	}
+	return StatusActive
+}
+
+func parseDates(s *Subscription, start, expire, created, updated string) {
+	s.StartDate, _ = time.Parse(dateFmt, start)
+	s.ExpireDate, _ = time.Parse(dateFmt, expire)
+	s.CreatedAt, _ = time.Parse(dateTimeFmt, created)
+	s.UpdatedAt, _ = time.Parse(dateTimeFmt, updated)
+}
 
 type Subscription struct {
 	ID         uint      `json:"id"`
@@ -64,10 +93,7 @@ func GetAll(db *sql.DB) ([]Subscription, error) {
 		if err := rows.Scan(&s.ID, &s.Name, &s.Remark, &s.Type, &s.Period, &s.Price, &startDate, &expireDate, &s.NotifyDays, &s.Status, &s.IsActive, &s.Notified, &createdAt, &updatedAt); err != nil {
 			return nil, err
 		}
-		s.StartDate, _ = time.Parse("2006-01-02", startDate)
-		s.ExpireDate, _ = time.Parse("2006-01-02", expireDate)
-		s.CreatedAt, _ = time.Parse("2006-01-02 15:04:05", createdAt)
-		s.UpdatedAt, _ = time.Parse("2006-01-02 15:04:05", updatedAt)
+		parseDates(&s, startDate, expireDate, createdAt, updatedAt)
 		subs = append(subs, s)
 	}
 	return subs, nil
@@ -81,17 +107,14 @@ func GetByID(db *sql.DB, id uint) (*Subscription, error) {
 	if err != nil {
 		return nil, err
 	}
-	s.StartDate, _ = time.Parse("2006-01-02", startDate)
-	s.ExpireDate, _ = time.Parse("2006-01-02", expireDate)
-	s.CreatedAt, _ = time.Parse("2006-01-02 15:04:05", createdAt)
-	s.UpdatedAt, _ = time.Parse("2006-01-02 15:04:05", updatedAt)
+	parseDates(&s, startDate, expireDate, createdAt, updatedAt)
 	return &s, nil
 }
 
 func Create(db *sql.DB, s *Subscription) error {
-	now := time.Now().Format("2006-01-02 15:04:05")
-	start := s.StartDate.Format("2006-01-02")
-	expire := s.ExpireDate.Format("2006-01-02")
+	now := time.Now().Format(dateTimeFmt)
+	start := s.StartDate.Format(dateFmt)
+	expire := s.ExpireDate.Format(dateFmt)
 	if s.Period == 0 {
 		s.Period = 1
 	}
@@ -107,9 +130,9 @@ func Create(db *sql.DB, s *Subscription) error {
 }
 
 func Update(db *sql.DB, s *Subscription) error {
-	now := time.Now().Format("2006-01-02 15:04:05")
-	start := s.StartDate.Format("2006-01-02")
-	expire := s.ExpireDate.Format("2006-01-02")
+	now := time.Now().Format(dateTimeFmt)
+	start := s.StartDate.Format(dateFmt)
+	expire := s.ExpireDate.Format(dateFmt)
 
 	query := `UPDATE subscriptions SET name=?, remark=?, type=?, period=?, price=?, start_date=?, expire_date=?, notify_days=?, status=?, is_active=?, updated_at=? WHERE id=?`
 	_, err := db.Exec(query, s.Name, s.Remark, s.Type, s.Period, s.Price, start, expire, s.NotifyDays, s.Status, s.IsActive, now, s.ID)
@@ -157,10 +180,7 @@ func Search(db *sql.DB, name string, subType string, expireDate string, status s
 		if err := rows.Scan(&s.ID, &s.Name, &s.Type, &s.Period, &s.Price, &startDate, &expireDateStr, &s.Status, &s.IsActive, &s.Notified, &createdAt, &updatedAt); err != nil {
 			return nil, err
 		}
-		s.StartDate, _ = time.Parse("2006-01-02", startDate)
-		s.ExpireDate, _ = time.Parse("2006-01-02", expireDateStr)
-		s.CreatedAt, _ = time.Parse("2006-01-02 15:04:05", createdAt)
-		s.UpdatedAt, _ = time.Parse("2006-01-02 15:04:05", updatedAt)
+		parseDates(&s, startDate, expireDateStr, createdAt, updatedAt)
 		subs = append(subs, s)
 	}
 	return subs, nil
@@ -182,10 +202,29 @@ func GetExpiring(db *sql.DB) ([]Subscription, error) {
 		if err := rows.Scan(&s.ID, &s.Name, &s.Type, &s.Period, &s.Price, &startDate, &expireDateStr, &s.NotifyDays, &s.Status, &s.IsActive, &s.Notified, &createdAt, &updatedAt); err != nil {
 			return nil, err
 		}
-		s.StartDate, _ = time.Parse("2006-01-02", startDate)
-		s.ExpireDate, _ = time.Parse("2006-01-02", expireDateStr)
-		s.CreatedAt, _ = time.Parse("2006-01-02 15:04:05", createdAt)
-		s.UpdatedAt, _ = time.Parse("2006-01-02 15:04:05", updatedAt)
+		parseDates(&s, startDate, expireDateStr, createdAt, updatedAt)
+		subs = append(subs, s)
+	}
+	return subs, nil
+}
+
+func GetExpired(db *sql.DB) ([]Subscription, error) {
+	// 查询已过期但未通知的订阅
+	query := `SELECT id, name, type, period, price, start_date, expire_date, notify_days, status, is_active, notified, created_at, updated_at FROM subscriptions WHERE is_active = 1 AND expire_date < date('now') AND notified = 0`
+	rows, err := db.Query(query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var subs []Subscription
+	for rows.Next() {
+		var s Subscription
+		var startDate, expireDateStr, createdAt, updatedAt string
+		if err := rows.Scan(&s.ID, &s.Name, &s.Type, &s.Period, &s.Price, &startDate, &expireDateStr, &s.NotifyDays, &s.Status, &s.IsActive, &s.Notified, &createdAt, &updatedAt); err != nil {
+			return nil, err
+		}
+		parseDates(&s, startDate, expireDateStr, createdAt, updatedAt)
 		subs = append(subs, s)
 	}
 	return subs, nil
@@ -206,32 +245,15 @@ type Stats struct {
 // GetStats 获取统计信息
 func GetStats(db *sql.DB) (*Stats, error) {
 	stats := &Stats{}
-
-	// 活跃订阅数
-	err := db.QueryRow("SELECT COUNT(*) FROM subscriptions WHERE is_active = 1").Scan(&stats.ActiveCount)
+	var monthlyTotal float64
+	err := db.QueryRow(`
+		SELECT COUNT(*), COALESCE(SUM(price / period), 0)
+		FROM subscriptions WHERE is_active = 1 AND period > 0
+	`).Scan(&stats.ActiveCount, &monthlyTotal)
 	if err != nil {
 		return nil, err
 	}
-
-	// 月支出总和 (price/period)
-	var total float64
-	rows, err := db.Query("SELECT price, period FROM subscriptions WHERE is_active = 1")
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var price, period float64
-		if err := rows.Scan(&price, &period); err != nil {
-			return nil, err
-		}
-		if period > 0 {
-			total += price / period
-		}
-	}
-	stats.MonthlyTotal = total
-
+	stats.MonthlyTotal = math.Round(monthlyTotal*10) / 10
 	return stats, nil
 }
 
@@ -259,10 +281,7 @@ func GetAllPaged(db *sql.DB, page, pageSize int) ([]Subscription, int64, error) 
 		if err := rows.Scan(&s.ID, &s.Name, &s.Remark, &s.Type, &s.Period, &s.Price, &startDate, &expireDate, &s.NotifyDays, &s.Status, &s.IsActive, &s.Notified, &createdAt, &updatedAt); err != nil {
 			return nil, 0, err
 		}
-		s.StartDate, _ = time.Parse("2006-01-02", startDate)
-		s.ExpireDate, _ = time.Parse("2006-01-02", expireDate)
-		s.CreatedAt, _ = time.Parse("2006-01-02 15:04:05", createdAt)
-		s.UpdatedAt, _ = time.Parse("2006-01-02 15:04:05", updatedAt)
+		parseDates(&s, startDate, expireDate, createdAt, updatedAt)
 		subs = append(subs, s)
 	}
 	return subs, total, nil
@@ -295,7 +314,22 @@ func AutoMigrateNotificationLogs(db *sql.DB) error {
 
 func CreateNotificationLog(db *sql.DB, log *NotificationLog) error {
 	query := `INSERT INTO notification_logs (subscription_id, subscription_name, channel, content, sent_at) VALUES (?, ?, ?, ?, ?)`
-	_, err := db.Exec(query, log.SubscriptionID, log.SubscriptionName, log.Channel, log.Content, log.SentAt.Format("2006-01-02 15:04:05"))
+	_, err := db.Exec(query, log.SubscriptionID, log.SubscriptionName, log.Channel, log.Content, log.SentAt.Format(dateTimeFmt))
+	return err
+}
+
+func CreateNotificationLogsBatch(db *sql.DB, logs []NotificationLog) error {
+	if len(logs) == 0 {
+		return nil
+	}
+	query := `INSERT INTO notification_logs (subscription_id, subscription_name, channel, content, sent_at) VALUES `
+	args := make([]any, 0, len(logs)*5)
+	for _, log := range logs {
+		query += `(?, ?, ?, ?, ?),`
+		args = append(args, log.SubscriptionID, log.SubscriptionName, log.Channel, log.Content, log.SentAt.Format(dateTimeFmt))
+	}
+	query = query[:len(query)-1] // remove trailing comma
+	_, err := db.Exec(query, args...)
 	return err
 }
 
@@ -321,7 +355,7 @@ func GetNotificationLogs(db *sql.DB, page, pageSize int) ([]NotificationLog, int
 		if err := rows.Scan(&l.ID, &l.SubscriptionID, &l.SubscriptionName, &l.Channel, &l.Content, &sentAt); err != nil {
 			return nil, 0, err
 		}
-		l.SentAt, _ = time.Parse("2006-01-02 15:04:05", sentAt)
+		l.SentAt, _ = time.Parse(dateTimeFmt, sentAt)
 		logs = append(logs, l)
 	}
 	return logs, total, nil
@@ -392,10 +426,7 @@ func SearchPaged(db *sql.DB, name string, subType int, expireDate, status string
 		if err := rows.Scan(&s.ID, &s.Name, &s.Remark, &s.Type, &s.Period, &s.Price, &startDate, &expireDateStr, &s.NotifyDays, &s.Status, &s.IsActive, &s.Notified, &createdAt, &updatedAt); err != nil {
 			return nil, 0, err
 		}
-		s.StartDate, _ = time.Parse("2006-01-02", startDate)
-		s.ExpireDate, _ = time.Parse("2006-01-02", expireDateStr)
-		s.CreatedAt, _ = time.Parse("2006-01-02 15:04:05", createdAt)
-		s.UpdatedAt, _ = time.Parse("2006-01-02 15:04:05", updatedAt)
+		parseDates(&s, startDate, expireDateStr, createdAt, updatedAt)
 		subs = append(subs, s)
 	}
 	return subs, total, nil

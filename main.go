@@ -1,10 +1,15 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"flag"
 	"fmt"
 	"log"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"subscription-manager/config"
@@ -56,11 +61,17 @@ func startServer() {
 	}
 
 	// 启动定时检查任务
+	stop := make(chan struct{})
 	go func() {
 		ticker := time.NewTicker(6 * time.Hour)
 		defer ticker.Stop()
-		for range ticker.C {
-			checkAndNotify(db)
+		for {
+			select {
+			case <-ticker.C:
+				checkAndNotify(db)
+			case <-stop:
+				return
+			}
 		}
 	}()
 
@@ -70,38 +81,61 @@ func startServer() {
 	// 启动 Gin 服务器
 	r := gin.Default()
 	setupRoutes(r, db)
-	r.Run(":8080")
+	srv := &http.Server{Addr: ":8080", Handler: r}
+
+	go func() {
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("服务器启动失败: %v", err)
+		}
+	}()
+
+	// 等待信号以优雅关闭
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
+	<-sig
+	close(stop)
+	srv.Shutdown(context.Background())
 }
 
 func checkAndNotify(db *sql.DB) {
-	subs, err := models.GetExpiring(db)
+	// 逻辑1: 提前通知N天的订阅
+	expiringSubs, err := models.GetExpiring(db)
 	if err != nil {
 		log.Printf("获取即将过期的订阅失败: %v", err)
 		return
 	}
 
-	if len(subs) == 0 {
+	// 逻辑2: 已过期但未通知的订阅
+	expiredSubs, err := models.GetExpired(db)
+	if err != nil {
+		log.Printf("获取已过期订阅失败: %v", err)
 		return
 	}
 
+	// 合并两个列表
+	allSubs := append(expiringSubs, expiredSubs...)
+	if len(allSubs) == 0 {
+		return
+	}
+
+	notifyAndMarkNotified(db, allSubs)
+}
+
+func notifyAndMarkNotified(db *sql.DB, subs []models.Subscription) {
 	now := time.Now()
 
 	// 批量发送微信通知
 	if err := notify.SendWeChatBatchNotification(subs); err != nil {
 		log.Printf("发送微信提醒失败: %v", err)
 	} else {
-		for _, sub := range subs {
-			logNotification(db, sub.ID, sub.Name, "wechat", "", now)
-		}
+		logNotificationsBatch(db, subs, "wechat", now)
 	}
 
 	// 批量发送邮件通知
 	if err := notify.SendEmailBatchNotification(subs); err != nil {
 		log.Printf("发送邮件提醒失败: %v", err)
 	} else {
-		for _, sub := range subs {
-			logNotification(db, sub.ID, sub.Name, "email", "", now)
-		}
+		logNotificationsBatch(db, subs, "email", now)
 	}
 
 	// 标记已通知
@@ -110,16 +144,18 @@ func checkAndNotify(db *sql.DB) {
 	}
 }
 
-func logNotification(db *sql.DB, subID uint, subName, channel, content string, sentAt time.Time) {
-	notifLog := &models.NotificationLog{
-		SubscriptionID:   subID,
-		SubscriptionName: subName,
-		Channel:          channel,
-		Content:          content,
-		SentAt:           sentAt,
+func logNotificationsBatch(db *sql.DB, subs []models.Subscription, channel string, sentAt time.Time) {
+	logs := make([]models.NotificationLog, len(subs))
+	for i, sub := range subs {
+		logs[i] = models.NotificationLog{
+			SubscriptionID:   sub.ID,
+			SubscriptionName: sub.Name,
+			Channel:          channel,
+			SentAt:           sentAt,
+		}
 	}
-	if err := models.CreateNotificationLog(db, notifLog); err != nil {
-		log.Printf("记录通知日志失败: %v", err)
+	if err := models.CreateNotificationLogsBatch(db, logs); err != nil {
+		log.Printf("批量记录通知日志失败: %v", err)
 	}
 }
 

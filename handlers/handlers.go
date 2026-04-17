@@ -157,15 +157,7 @@ func (h *Handler) GetSubscriptions(c *gin.Context) {
 	}
 
 	for i := range subs {
-		days := int(time.Until(subs[i].ExpireDate).Hours() / 24)
-		subs[i].UpdatedAt = time.Now()
-		if days < 0 {
-			subs[i].Status = "expired"
-		} else if days <= 7 {
-			subs[i].Status = "expiring"
-		} else {
-			subs[i].Status = "active"
-		}
+		subs[i].Status = models.ComputeStatus(subs[i].ExpireDate)
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -210,14 +202,7 @@ func (h *Handler) CreateSubscription(c *gin.Context) {
 		Notified:   false,
 	}
 
-	days := int(time.Until(sub.ExpireDate).Hours() / 24)
-	if days < 0 {
-		sub.Status = "expired"
-	} else if days <= 7 {
-		sub.Status = "expiring"
-	} else {
-		sub.Status = "active"
-	}
+	sub.Status = models.ComputeStatus(sub.ExpireDate)
 
 	if err := models.Create(h.db, &sub); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -264,14 +249,7 @@ func (h *Handler) UpdateSubscription(c *gin.Context) {
 		IsActive:   req.IsActive,
 	}
 
-	days := int(time.Until(sub.ExpireDate).Hours() / 24)
-	if days < 0 {
-		sub.Status = "expired"
-	} else if days <= 7 {
-		sub.Status = "expiring"
-	} else {
-		sub.Status = "active"
-	}
+	sub.Status = models.ComputeStatus(sub.ExpireDate)
 
 	if err := models.Update(h.db, &sub); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -314,7 +292,7 @@ func (h *Handler) RenewSubscription(c *gin.Context) {
 		Period int `json:"period"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "参数错误"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "参数错误", "result:": err.Error()})
 		return
 	}
 
@@ -332,15 +310,7 @@ func (h *Handler) RenewSubscription(c *gin.Context) {
 	sub.StartDate = newStart
 	sub.ExpireDate = newStart.AddDate(0, req.Period, 0)
 	sub.Notified = false // 重置通知状态
-
-	days := int(time.Until(sub.ExpireDate).Hours() / 24)
-	if days < 0 {
-		sub.Status = "expired"
-	} else if days <= 7 {
-		sub.Status = "expiring"
-	} else {
-		sub.Status = "active"
-	}
+	sub.Status = models.ComputeStatus(sub.ExpireDate)
 
 	if err := models.Update(h.db, sub); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})

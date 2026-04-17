@@ -9,12 +9,20 @@ import (
 	"net/mail"
 	"net/smtp"
 	"os"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
 
 	"subscription-manager/models"
 )
+
+const dateFmt = "2006-01-02"
+
+// DaysUntil returns days remaining until t (negative if past).
+func DaysUntil(t time.Time) int {
+	return int(time.Until(t).Hours() / 24)
+}
 
 // GetTypeName 获取类型名称
 func GetTypeName(t int) string {
@@ -75,11 +83,11 @@ var AppConfig Config
 
 var (
 	// Server酱配置
-	ServerChanKey = "SCUxxxx" // 替换为你的 Server酱 key
+	ServerChanKey = ""
 	SCTimeout     = 30 * time.Second
 
 	// 邮件配置
-	SMTPServer   = "smtp.example.com"
+	SMTPServer   = ""
 	SMTPPort     = 465
 	SMTPAuthCode = ""
 	SMTPFrom     = ""
@@ -103,13 +111,9 @@ var passwordHashData []byte
 var jwtSecretData string
 
 func InitConfig() error {
-	if _, err := os.Stat("config/config.yaml"); os.IsNotExist(err) {
-		return fmt.Errorf("配置文件不存在，请运行初始化")
-	}
-
 	data, err := os.ReadFile("config/config.yaml")
 	if err != nil {
-		return fmt.Errorf("读取配置文件失败")
+		return fmt.Errorf("配置文件不存在或读取失败，请运行初始化")
 	}
 
 	if err := yaml.Unmarshal(data, &AppConfig); err != nil {
@@ -160,22 +164,25 @@ func CheckConfig() error {
 
 // SendWeChatNotification 发送微信提醒
 func SendWeChatNotification(sub models.Subscription) error {
-	if ServerChanKey == "SCUxxxx" {
+	if ServerChanKey == "" {
 		return fmt.Errorf("Server酱 key 未配置")
 	}
 
 	msg := fmt.Sprintf("【续费提醒】%s 即将到期\n服务: %s\n到期时间: %s\n剩余: %d天\n费用: %.2f元",
 		sub.Name,
 		sub.Name,
-		sub.ExpireDate.Format("2006-01-02"),
-		int(time.Until(sub.ExpireDate).Hours()/24),
+		sub.ExpireDate.Format(dateFmt),
+		DaysUntil(sub.ExpireDate),
 		sub.Price)
 
 	form := map[string]string{
 		"text": msg,
 		"desp": fmt.Sprintf("类型: %s\n周期: %s", GetTypeName(sub.Type), GetPeriodName(sub.Period)),
 	}
-	formData, _ := json.Marshal(form)
+	formData, err := json.Marshal(form)
+	if err != nil {
+		return err
+	}
 
 	tr := &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}
 	client := &http.Client{Transport: tr, Timeout: SCTimeout}
@@ -188,10 +195,8 @@ func SendWeChatNotification(sub models.Subscription) error {
 	}
 	defer resp.Body.Close()
 
-	var result map[string]any
-	json.NewDecoder(resp.Body).Decode(&result)
 	if resp.StatusCode != 200 {
-		return fmt.Errorf("发送失败: %v", result)
+		return fmt.Errorf("发送失败: HTTP %d", resp.StatusCode)
 	}
 	return nil
 }
@@ -204,7 +209,7 @@ func SendEmailNotification(sub models.Subscription) error {
 
 	subject := fmt.Sprintf("【续费提醒】%s 即将到期", sub.Name)
 	body := fmt.Sprintf("%s 即将到期\n\n服务: %s\n类型: %s\n周期: %s\n费用: %.2f元\n到期时间: %s\n剩余: %d天",
-		sub.Name, sub.Name, GetTypeName(sub.Type), GetPeriodName(sub.Period), sub.Price, sub.ExpireDate.Format("2006-01-02"), int(time.Until(sub.ExpireDate).Hours()/24))
+		sub.Name, sub.Name, GetTypeName(sub.Type), GetPeriodName(sub.Period), sub.Price, sub.ExpireDate.Format(dateFmt), DaysUntil(sub.ExpireDate))
 
 	from := mail.Address{Name: "订阅管理", Address: SMTPFrom}
 	to := mail.Address{Name: "", Address: SMTPTo}
@@ -251,32 +256,35 @@ func sendMail(from, to mail.Address, subject, body string) error {
 
 // SendWeChatBatchNotification 批量发送微信提醒
 func SendWeChatBatchNotification(subs []models.Subscription) error {
-	if ServerChanKey == "SCUxxxx" {
+	if ServerChanKey == "" {
 		return fmt.Errorf("Server酱 key 未配置")
 	}
 
 	count := len(subs)
 	days := "即将到期"
 	if count == 1 {
-		days = fmt.Sprintf("剩余 %d 天", int(time.Until(subs[0].ExpireDate).Hours()/24))
+		days = fmt.Sprintf("剩余 %d 天", DaysUntil(subs[0].ExpireDate))
 	}
 
 	msg := fmt.Sprintf("【续费提醒】您有 %d 个订阅 %s", count, days)
 
 	// 构建详情
-	desp := ""
+	var desp strings.Builder
 	for _, sub := range subs {
-		left := int(time.Until(sub.ExpireDate).Hours() / 24)
-		desp += fmt.Sprintf("\n---\n服务: %s\n类型: %s\n周期: %s\n费用: %.2f元\n到期: %s\n剩余: %d天",
+		left := DaysUntil(sub.ExpireDate)
+		desp.WriteString(fmt.Sprintf("\n---\n服务: %s\n类型: %s\n周期: %s\n费用: %.2f元\n到期: %s\n剩余: %d天",
 			sub.Name, GetTypeName(sub.Type), GetPeriodName(sub.Period),
-			sub.Price, sub.ExpireDate.Format("2006-01-02"), left)
+			sub.Price, sub.ExpireDate.Format(dateFmt), left))
 	}
 
 	form := map[string]string{
 		"text": msg,
-		"desp": desp,
+		"desp": desp.String(),
 	}
-	formData, _ := json.Marshal(form)
+	formData, err := json.Marshal(form)
+	if err != nil {
+		return err
+	}
 
 	tr := &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}
 	client := &http.Client{Transport: tr, Timeout: SCTimeout}
@@ -289,10 +297,8 @@ func SendWeChatBatchNotification(subs []models.Subscription) error {
 	}
 	defer resp.Body.Close()
 
-	var result map[string]any
-	json.NewDecoder(resp.Body).Decode(&result)
 	if resp.StatusCode != 200 {
-		return fmt.Errorf("发送失败: %v", result)
+		return fmt.Errorf("发送失败: HTTP %d", resp.StatusCode)
 	}
 	return nil
 }
@@ -306,21 +312,17 @@ func SendEmailBatchNotification(subs []models.Subscription) error {
 	count := len(subs)
 	subject := fmt.Sprintf("【续费提醒】您有 %d 个订阅即将到期", count)
 
-	body := fmt.Sprintf("您有 %d 个订阅即将到期\n\n", count)
+	var body strings.Builder
+	body.WriteString(fmt.Sprintf("您有 %d 个订阅即将到期\n\n", count))
 	for _, sub := range subs {
-		left := int(time.Until(sub.ExpireDate).Hours() / 24)
-		body += fmt.Sprintf("---\n服务: %s\n类型: %s\n周期: %s\n费用: %.2f元\n到期时间: %s\n剩余: %d天\n\n",
+		left := DaysUntil(sub.ExpireDate)
+		body.WriteString(fmt.Sprintf("---\n服务: %s\n类型: %s\n周期: %s\n费用: %.2f元\n到期时间: %s\n剩余: %d天\n\n",
 			sub.Name, GetTypeName(sub.Type), GetPeriodName(sub.Period),
-			sub.Price, sub.ExpireDate.Format("2006-01-02"), left)
+			sub.Price, sub.ExpireDate.Format(dateFmt), left))
 	}
 
 	from := mail.Address{Name: "订阅管理", Address: SMTPFrom}
 	to := mail.Address{Name: "", Address: SMTPTo}
 
-	return sendMail(from, to, subject, body)
-}
-
-// CheckAndNotify 检查并发送通知
-func CheckAndNotify(db any) {
-	// 此函数在实际运行时调用
+	return sendMail(from, to, subject, body.String())
 }
