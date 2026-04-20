@@ -63,13 +63,14 @@ func startServer() {
 	// 启动定时检查任务
 	stop := make(chan struct{})
 	go func() {
-		ticker := time.NewTicker(6 * time.Hour)
-		defer ticker.Stop()
 		for {
+			next := nextDailyRunTime(notify.ScheduleHour, notify.ScheduleMinute)
+			timer := time.NewTimer(time.Until(next))
 			select {
-			case <-ticker.C:
+			case <-timer.C:
 				checkAndNotify(db)
 			case <-stop:
+				timer.Stop()
 				return
 			}
 		}
@@ -184,4 +185,13 @@ func setupRoutes(r *gin.Engine, db *sql.DB) {
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{"status": "ok"})
 	})
+}
+
+func nextDailyRunTime(hour, minute int) time.Time {
+	now := time.Now()
+	next := time.Date(now.Year(), now.Month(), now.Day(), hour, minute, 0, 0, now.Location())
+	if next.Before(now) {
+		next = next.Add(24 * time.Hour)
+	}
+	return next
 }

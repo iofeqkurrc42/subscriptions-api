@@ -16,6 +16,7 @@ type Config struct {
 	JWTSecret  string           `yaml:"jwt_secret"`
 	ServerChan ServerChanConfig `yaml:"serverchan"`
 	SMTP       SMTPConfig       `yaml:"smtp"`
+	Schedule   ScheduleConfig   `yaml:"schedule"`
 }
 
 // ServerChanConfig Server酱配置
@@ -30,6 +31,12 @@ type SMTPConfig struct {
 	AuthCode string `yaml:"auth_code"`
 	From     string `yaml:"from"`
 	To       string `yaml:"to"`
+}
+
+// ScheduleConfig 定时任务配置
+type ScheduleConfig struct {
+	Hour   int `yaml:"hour"`   // 定时检查小时 (0-23)
+	Minute int `yaml:"minute"` // 定时检查分钟 (0-59)
 }
 
 func main() {
@@ -112,6 +119,35 @@ func main() {
 		fmt.Print("SMTP 收件人 (多个用逗号分隔): ")
 		config.SMTP.To, _ = reader.ReadString('\n')
 		config.SMTP.To = strings.TrimSpace(config.SMTP.To)
+	}
+
+	fmt.Println("\n=== 定时检查配置 ===")
+	fmt.Println("设置每天自动检查订阅过期的时间")
+
+	fmt.Print("小时 (0-23, 默认10): ")
+	hourStr, _ := reader.ReadString('\n')
+	hourStr = strings.TrimSpace(hourStr)
+	if hourStr == "" {
+		config.Schedule.Hour = 10
+	} else {
+		fmt.Sscanf(hourStr, "%d", &config.Schedule.Hour)
+		if config.Schedule.Hour < 0 || config.Schedule.Hour > 23 {
+			fmt.Println("小时必须在0-23之间，使用默认值10")
+			config.Schedule.Hour = 10
+		}
+	}
+
+	fmt.Print("分钟 (0-59, 默认30): ")
+	minuteStr, _ := reader.ReadString('\n')
+	minuteStr = strings.TrimSpace(minuteStr)
+	if minuteStr == "" {
+		config.Schedule.Minute = 30
+	} else {
+		fmt.Sscanf(minuteStr, "%d", &config.Schedule.Minute)
+		if config.Schedule.Minute < 0 || config.Schedule.Minute > 59 {
+			fmt.Println("分钟必须在0-59之间，使用默认值30")
+			config.Schedule.Minute = 30
+		}
 	}
 
 	// 写入配置文件

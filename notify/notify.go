@@ -62,6 +62,7 @@ type Config struct {
 	JWTSecret  string           `yaml:"jwt_secret"`
 	ServerChan ServerChanConfig `yaml:"serverchan"`
 	SMTP       SMTPConfig       `yaml:"smtp"`
+	Schedule   ScheduleConfig   `yaml:"schedule"`
 }
 
 // ServerChanConfig Server酱配置
@@ -76,6 +77,12 @@ type SMTPConfig struct {
 	AuthCode string `yaml:"auth_code"`
 	From     string `yaml:"from"`
 	To       string `yaml:"to"`
+}
+
+// ScheduleConfig 定时任务配置
+type ScheduleConfig struct {
+	Hour   int `yaml:"hour"`
+	Minute int `yaml:"minute"`
 }
 
 // AppConfig 全局配置
@@ -95,6 +102,10 @@ var (
 
 	// 通知配置
 	NotifyDays = 0 // 提前N天通知，0表示当天通知
+
+	// 定时任务配置
+	ScheduleHour   = 10 // 默认10点
+	ScheduleMinute = 30 // 默认30分
 )
 
 func LoadConfig() error {
@@ -136,6 +147,13 @@ func InitConfig() error {
 		SMTPAuthCode = AppConfig.SMTP.AuthCode
 		SMTPFrom = AppConfig.SMTP.From
 		SMTPTo = AppConfig.SMTP.To
+	}
+
+	if AppConfig.Schedule.Hour >= 0 && AppConfig.Schedule.Hour <= 23 {
+		ScheduleHour = AppConfig.Schedule.Hour
+	}
+	if AppConfig.Schedule.Minute >= 0 && AppConfig.Schedule.Minute <= 59 {
+		ScheduleMinute = AppConfig.Schedule.Minute
 	}
 
 	return nil

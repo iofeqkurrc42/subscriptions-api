@@ -188,7 +188,7 @@ func Search(db *sql.DB, name string, subType string, expireDate string, status s
 
 func GetExpiring(db *sql.DB) ([]Subscription, error) {
 	// 查询即将到期的订阅（根据每个订阅的 notify_days）
-	query := `SELECT id, name, type, period, price, start_date, expire_date, notify_days, status, is_active, notified, created_at, updated_at FROM subscriptions WHERE is_active = 1 AND expire_date <= date('now', '+' || notify_days || ' days') AND expire_date >= date('now') AND notified = 0`
+	query := `SELECT id, name, type, period, price, start_date, expire_date, notify_days, status, is_active, notified, created_at, updated_at FROM subscriptions WHERE is_active = 1 AND expire_date <= date('now', 'localtime', '+' || notify_days || ' days') AND expire_date >= date('now', 'localtime') AND notified = 0`
 	rows, err := db.Query(query)
 	if err != nil {
 		return nil, err
@@ -210,7 +210,7 @@ func GetExpiring(db *sql.DB) ([]Subscription, error) {
 
 func GetExpired(db *sql.DB) ([]Subscription, error) {
 	// 查询已过期但未通知的订阅
-	query := `SELECT id, name, type, period, price, start_date, expire_date, notify_days, status, is_active, notified, created_at, updated_at FROM subscriptions WHERE is_active = 1 AND expire_date < date('now') AND notified = 0`
+	query := `SELECT id, name, type, period, price, start_date, expire_date, notify_days, status, is_active, notified, created_at, updated_at FROM subscriptions WHERE is_active = 1 AND expire_date < date('now', 'localtime') AND notified = 0`
 	rows, err := db.Query(query)
 	if err != nil {
 		return nil, err
