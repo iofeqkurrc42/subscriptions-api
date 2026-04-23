@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"subscription-manager/models"
 
@@ -183,8 +184,9 @@ func (h *Handler) CreateSubscription(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "参数错误: " + err.Error()})
 		return
 	}
-	if len(req.Remark) > 20 {
-		req.Remark = req.Remark[:20]
+	if utf8.RuneCountInString(req.Remark) > 20 {
+		runes := []rune(req.Remark)
+		req.Remark = string(runes[:20])
 	}
 	startDate, _ := time.Parse("2006-01-02", req.StartDate)
 	expireDate, _ := time.Parse("2006-01-02", req.ExpireDate)
@@ -229,8 +231,9 @@ func (h *Handler) UpdateSubscription(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "参数错误: " + err.Error()})
 		return
 	}
-	if len(req.Remark) > 20 {
-		req.Remark = req.Remark[:20]
+	if utf8.RuneCountInString(req.Remark) > 20 {
+		runes := []rune(req.Remark)
+		req.Remark = string(runes[:20])
 	}
 	subID, _ := parseUint(id)
 	startDate, _ := time.Parse("2006-01-02", req.StartDate)
