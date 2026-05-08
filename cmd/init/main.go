@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"golang.org/x/crypto/bcrypt"
+	"golang.org/x/term"
 	"gopkg.in/yaml.v3"
 )
 
@@ -73,10 +74,8 @@ func main() {
 	config.Password = string(hash)
 
 	// 输入 JWT Secret
-	reader := bufio.NewReader(os.Stdin)
 	fmt.Print("请输入 JWT Secret (用于token验证): ")
-	jwtSecret, _ := reader.ReadString('\n')
-	jwtSecret = strings.TrimSpace(jwtSecret)
+	jwtSecret := readPassword()
 	if jwtSecret == "" {
 		fmt.Println("JWT Secret 不能为空")
 		os.Exit(1)
@@ -84,7 +83,7 @@ func main() {
 	config.JWTSecret = jwtSecret
 
 	// 输入 Server酱 key
-	reader = bufio.NewReader(os.Stdin)
+	reader := bufio.NewReader(os.Stdin)
 	fmt.Print("请输入 Server酱 key (直接回车跳过): ")
 	key, _ := reader.ReadString('\n')
 	key = strings.TrimSpace(key)
@@ -172,11 +171,11 @@ func main() {
 }
 
 func readPassword() string {
-	// 使用 Unix 终端控制码隐藏输入
-	fmt.Print("\033[8m")
-	reader := bufio.NewReader(os.Stdin)
-	line, _ := reader.ReadString('\n')
-	// 恢复显示
-	fmt.Print("\033[0m")
-	return strings.TrimSpace(line)
+	bytePassword, err := term.ReadPassword(int(os.Stdin.Fd()))
+	if err != nil {
+		fmt.Printf("读取密码失败: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Println()
+	return strings.TrimSpace(string(bytePassword))
 }

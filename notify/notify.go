@@ -202,8 +202,7 @@ func SendWeChatNotification(sub models.Subscription) error {
 		return err
 	}
 
-	tr := &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}
-	client := &http.Client{Transport: tr, Timeout: SCTimeout}
+	client := &http.Client{Timeout: SCTimeout}
 
 	req, _ := http.NewRequest("POST", fmt.Sprintf("https://sctapi.ftqq.com/%s.send", ServerChanKey), bytes.NewReader(formData))
 	req.Header.Set("Content-Type", "application/json")
@@ -304,8 +303,7 @@ func SendWeChatBatchNotification(subs []models.Subscription) error {
 		return err
 	}
 
-	tr := &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}
-	client := &http.Client{Transport: tr, Timeout: SCTimeout}
+	client := &http.Client{Timeout: SCTimeout}
 
 	req, _ := http.NewRequest("POST", fmt.Sprintf("https://sctapi.ftqq.com/%s.send", ServerChanKey), bytes.NewReader(formData))
 	req.Header.Set("Content-Type", "application/json")

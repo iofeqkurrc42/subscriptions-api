@@ -45,6 +45,7 @@ func startServer() {
 	// 初始化 JWT Secret
 	jwtSecret, _ := notify.GetJWTSecret()
 	handlers.InitJWTSecret(jwtSecret)
+	handlers.StartRateLimitCleaner()
 
 	// 初始化数据库
 	db, err := config.InitDB()

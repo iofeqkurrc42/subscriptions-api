@@ -3,8 +3,16 @@ package models
 import (
 	"database/sql"
 	"math"
+	"strings"
 	"time"
 )
+
+func escapeSQLLike(s string) string {
+	s = strings.ReplaceAll(s, "\\", "\\\\")
+	s = strings.ReplaceAll(s, "%", "\\%")
+	s = strings.ReplaceAll(s, "_", "\\_")
+	return s
+}
 
 const dateFmt = "2006-01-02"
 const dateTimeFmt = "2006-01-02 15:04:05"
@@ -150,8 +158,8 @@ func Search(db *sql.DB, name string, subType string, expireDate string, status s
 	args := []any{}
 
 	if name != "" {
-		query += " AND name LIKE ?"
-		args = append(args, "%"+name+"%")
+		query += " AND name LIKE ? ESCAPE '\\'"
+		args = append(args, "%"+escapeSQLLike(name)+"%")
 	}
 	if subType != "" {
 		query += " AND type = ?"
@@ -367,8 +375,8 @@ func SearchPaged(db *sql.DB, name string, subType int, expireDate, status string
 	args := []any{}
 
 	if name != "" {
-		query += " AND name LIKE ?"
-		args = append(args, "%"+name+"%")
+		query += " AND name LIKE ? ESCAPE '\\'"
+		args = append(args, "%"+escapeSQLLike(name)+"%")
 	}
 	if subType >= 0 {
 		query += " AND type = ?"
@@ -387,8 +395,8 @@ func SearchPaged(db *sql.DB, name string, subType int, expireDate, status string
 	countQuery := "SELECT COUNT(*) FROM subscriptions WHERE 1=1"
 	countArgs := []any{}
 	if name != "" {
-		countQuery += " AND name LIKE ?"
-		countArgs = append(countArgs, "%"+name+"%")
+		countQuery += " AND name LIKE ? ESCAPE '\\'"
+		countArgs = append(countArgs, "%"+escapeSQLLike(name)+"%")
 	}
 	if subType >= 0 {
 		countQuery += " AND type = ?"
